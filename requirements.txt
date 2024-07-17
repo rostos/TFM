@@ -1,0 +1,10 @@
+numpy==1.19.5
+torch==1.10.1+cu102
+scikit-learn==0.24.2
+matplotlib==3.1.0
+keras==2.2.4
+pandas==1.1.5
+Pillow==8.4.0
+tensorflow==1.14.0
+torchvision==0.11.2+cu102
+tqdm==4.64.1
