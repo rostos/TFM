@@ -353,10 +353,17 @@ def compute_AU_F1(pred,label):
     F1_mean = np.mean(F1s)
     return F1s, F1_mean
 
+def adjust_weights(va_loss, expr_loss, au_loss):
+    # Normalize losses and adjust weights (example)
+    total_loss = va_loss + expr_loss + au_loss
+    return va_loss / total_loss, expr_loss / total_loss, au_loss / total_loss
+
 # Define the train and evaluation functions
-def train_model(model, train_loader, optimizer, criterion_val_arousal=None, criterion_emotions=None, criterion_actions=None, criterion_at=None, device=None, challenges=('val_arousal', 'emotions', 'actions')):
+def train_model(model, train_loader, optimizer, criterion_val_arousal=None, criterion_emotions=None, criterion_actions=None, criterion_at=None, device=None, challenges=('val_arousal', 'emotions', 'actions'), weights={'val_arousal': 1.0, 'emotions': 1.0, 'actions': 1.0}):
     model.train()
     running_loss = 0.0
+    task_losses = {'val_arousal': 0.0, 'emotions': 0.0, 'actions': 0.0}
+
     for inputs, labels in tqdm(train_loader):
         inputs = inputs.to(device)
         labels_val_arousal = labels[0].to(device) if 'val_arousal' in challenges else None
@@ -393,6 +400,12 @@ def train_model(model, train_loader, optimizer, criterion_val_arousal=None, crit
         optimizer.step()
 
         running_loss += loss.item()
+
+    # Update the weights to fine-tune the loss
+    total_loss = sum(task_losses.values())
+    if total_loss > 0:
+        for task in task_losses:
+            weights[task] = task_losses[task] / total_loss
 
     epoch_loss = running_loss / len(train_loader)
     return epoch_loss
@@ -497,11 +510,13 @@ optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr
 best_P_Score = float('-inf')
 best_model_state = None
 
+# Weights for loss fine-tuning
+weights = { 'val_arousal': 1.0, 'emotions': 1.0, 'actions': 1.0 }
 
 print('------- Init of training ', datetime.now())
 
 for epoch in range(num_epochs):
-    train_loss = train_model(model, train_loader, optimizer, criterion_val_arousal, criterion_emotions, criterion_actions, criterion_at, device, challenges=('val_arousal', 'emotions', 'actions'))
+    train_loss = train_model(model, train_loader, optimizer, criterion_val_arousal, criterion_emotions, criterion_actions, criterion_at, device, challenges=('val_arousal', 'emotions', 'actions'), weights=weights)
     results = evaluate_model(model, test_loader, criterion_val_arousal, criterion_emotions, criterion_actions, criterion_at, device, challenges=('val_arousal', 'emotions', 'actions'))
 
     P_score = results[0] + (results[7] or 0) + (results[6] or 0)
