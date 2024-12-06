@@ -11,7 +11,7 @@ from networks.DDAM_ABAW import DDAMNet
 from sklearn.metrics import confusion_matrix
 import matplotlib.pyplot as plt
 import itertools
-from keras.utils import Sequence
+from tensorflow.keras.utils import Sequence
 import pandas as pd
 from PIL import Image
 from tensorflow.keras.utils import to_categorical
@@ -21,8 +21,10 @@ from sklearn.metrics import f1_score
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+import os
 
-logging.basicConfig(filename='output.log', level=logging.DEBUG)
+os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+
 
 # Function to freeze all layers
 def freeze_all_layers(model):
@@ -32,6 +34,12 @@ def freeze_all_layers(model):
 def unfreeze_all_layers(model):
     for param in model.parameters():
         param.requires_grad = True
+
+# Function to freeze specific layers
+def freeze_layers(model, layer_names):
+    for name, param in model.named_parameters():
+        if any(layer_name in name for layer_name in layer_names):
+            param.requires_grad = False
 
 # Function to unfreeze specific layers
 def unfreeze_layers(model, layer_names):
@@ -68,7 +76,7 @@ train_transforms = transforms.Compose([
 
 class DataGenerator(Sequence):
     'Generates data for Keras'
-    def __init__(self, main_folder, mode, batch_size=32, image_size=(260, 260), n_classes_3=8, shuffle=True, device='cpu', transforms=test_transforms):
+    def __init__(self, main_folder, mode, batch_size=32, image_size=(260, 260), n_classes_3=8, shuffle=True, device='cpu', transforms=test_transforms, drop_last=False):
         'Initialization'
         self.main_folder = main_folder
         self.mode = mode
@@ -79,11 +87,12 @@ class DataGenerator(Sequence):
         self.shuffle = shuffle
         self.device = device
         self.transforms = transforms
+        self.drop_last = drop_last
 
         if self.mode == 'train':
-            self.targets_csv = '../keras_vggface_master/filtered_training_set_annotations.csv'
+            self.targets_csv = './transformed_training_set_annotations_3.csv'
         elif self.mode == 'val':
-            self.targets_csv = '../keras_vggface_master/filtered_validation_set_annotations.csv'
+            self.targets_csv = './transformed_validation_set_annotations.csv'
         else:
             raise ValueError("Invalid mode. Mode must be 'train' or 'val'.")
 
@@ -91,18 +100,27 @@ class DataGenerator(Sequence):
         self.targets_df = pd.read_csv(self.targets_csv)
         self.list_IDs = self.targets_df.index.tolist()
 
-        
-
         self.on_epoch_end()
 
     def __len__(self):
         'Denotes the number of batches per epoch'
-        return int(np.floor(len(self.list_IDs) / self.batch_size))
+        if self.drop_last:
+            # Exclude the last batch if its size is less than batch_size
+            return len(self.list_IDs) // self.batch_size
+        else:
+            # Include the last batch even if it's smaller than batch_size
+            return int(np.ceil(len(self.list_IDs) / self.batch_size))
 
     def __getitem__(self, index):
         'Generate one batch of data'
         # Generate indexes of the batch
-        indexes = self.indexes[index*self.batch_size:(index+1)*self.batch_size]
+        start_idx = index * self.batch_size
+        end_idx = start_idx + self.batch_size
+
+        if end_idx > len(self.list_IDs) and self.drop_last:
+            raise IndexError("Index out of range for batch generation with drop_last=True.")
+
+        indexes = self.indexes[start_idx:end_idx]
 
         # Find list of IDs
         list_IDs_temp = [self.list_IDs[k] for k in indexes]
@@ -156,7 +174,8 @@ def CCC(y_true, y_pred):
     return ccc
 
 def CCC_loss(y_true, y_pred):
-    return 1-0.5*(CCC(y_true[:,0], y_pred[:,0])+CCC(y_true[:,1], y_pred[:,1]))
+    loss = 1-0.5*(CCC(y_true[:,0], y_pred[:,0])+CCC(y_true[:,1], y_pred[:,1]))
+    return loss
 
 def f1_metric(y_true, y_pred):
     def recall_m(y_true, y_pred):
@@ -354,19 +373,25 @@ def train_model(model, train_loader, optimizer, criterion_val_arousal=None, crit
         loss = 0.0
         if 'val_arousal' in challenges:
             loss_val_arousal = criterion_val_arousal(val_arousal, labels_val_arousal)
-            loss += loss_val_arousal
-        if 'emotions' in challenges:
+            task_losses['val_arousal'] += loss_val_arousal.item()
+            loss += weights['val_arousal'] * loss_val_arousal
+
+        if 'emotions' in challenges:           
             emotions_argmax = torch.argmax(labels_emotions, dim=1)
             loss_emotions = criterion_emotions(emotions, emotions_argmax)
-            loss += loss_emotions
+            task_losses['emotions'] += loss_emotions.item()
+            loss += weights['emotions'] * loss_emotions
+
         if 'actions' in challenges:
             loss_actions = criterion_actions(actions.float(), labels_actions.float())
-            loss += loss_actions
+            task_losses['actions'] += loss_actions.item()
+            loss += weights['actions'] * loss_actions
         if criterion_at:
             loss += 0.1 * criterion_at(heads)
 
         loss.backward()
         optimizer.step()
+
         running_loss += loss.item()
 
     epoch_loss = running_loss / len(train_loader)
@@ -438,19 +463,19 @@ def evaluate_model(model, test_loader, criterion_val_arousal=None, criterion_emo
 
 
 #######################################################################################################################################
-logging.debug('--------------------------------------------------------------------------------------')
-logging.debug('------- train.py execution: ', datetime.now())
+print('--------------------------------------------------------------------------------------')
+print('------- train.py execution start ', datetime.now())
 
 challenges=('val_arousal', 'emotions', 'actions')
 num_epochs = 10
 learning_rate = 0.00001
-model_path = 'checkpoints_ver2.0/affecnet8_epoch25_acc0.6469.pth'
+model_path = './checkpoints_ver2.0/affecnet8_epoch25_acc0.6469.pth'
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Define dataloaders (placeholders, replace with actual DataLoader instances)
 # Initialize the generator
-train_loader = DataGenerator("../cropped_aligned", mode="train", batch_size=32, image_size=(112, 112), shuffle=True, device='cuda', transforms=train_transforms)
-test_loader = DataGenerator("../cropped_aligned",mode="val",batch_size=32 ,image_size=(112,112), shuffle=False, device='cuda', transforms=test_transforms)
+train_loader = DataGenerator("../ABAW_7th/cropped_aligned", mode="train", batch_size=32, image_size=(112, 112), shuffle=True, device='cuda', transforms=train_transforms, drop_last = True)
+test_loader = DataGenerator("../ABAW_7th/cropped_aligned",mode="val",batch_size=32, image_size=(112,112), shuffle=False, device='cuda', transforms=test_transforms, drop_last = True)
 
 # Define loss functions
 criterion_val_arousal = CCC_loss
@@ -463,7 +488,7 @@ model = DDAMNet(num_class=8, num_head=2, pretrained=False, train_val_arousal=Tru
 checkpoint = torch.load(model_path, map_location=device)
 model.load_state_dict(checkpoint['model_state_dict'], strict=False)
 freeze_all_layers(model)
-layers_to_unfreeze = ['custom_classifier', "Linear","cat_head","features"]#"cat_head",,"features"
+layers_to_unfreeze = ['custom_classifier', "Linear","cat_head","features"]
 unfreeze_layers(model, layers_to_unfreeze)
 #freeze_batchnorm_layers(model)
 model.to(device)
@@ -472,65 +497,34 @@ optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr
 best_P_Score = float('-inf')
 best_model_state = None
 
-logging.debug('------- Init of training ', datetime.now())
+
+print('------- Init of training ', datetime.now())
+
 for epoch in range(num_epochs):
     train_loss = train_model(model, train_loader, optimizer, criterion_val_arousal, criterion_emotions, criterion_actions, criterion_at, device, challenges=('val_arousal', 'emotions', 'actions'))
     results = evaluate_model(model, test_loader, criterion_val_arousal, criterion_emotions, criterion_actions, criterion_at, device, challenges=('val_arousal', 'emotions', 'actions'))
+
     P_score = results[0] + (results[7] or 0) + (results[6] or 0)
     val_loss = results[5]
+
     if P_score > best_P_Score:
         best_P_Score = P_score
         best_model_state = model.state_dict()
 
-    logging.debug(f"Epoch {epoch+1}/{num_epochs}, Training Loss: {train_loss}")
-    logging.debug(f"Validation Loss: {val_loss}")
-    logging.debug(f"P_SCORE: {results[0] + (results[7] or 0) + (results[6] or 0)}")
+    print(f"Epoch {epoch+1}/{num_epochs}, Training Loss: {train_loss}")
+    print(f"Validation Loss: {val_loss}")
+    print(f"P_SCORE: {results[0] + (results[7] or 0) + (results[6] or 0)}")
     if 'val_arousal' in challenges:
-        logging.debug(f"Validation CCC (Valence-Arousal): {results[0]}, Valence: {results[1]}, Arousal: {results[2]}")
+        print(f"Validation CCC (Valence-Arousal): {results[0]}, Valence: {results[1]}, Arousal: {results[2]}")
     if 'emotions' in challenges:
-        logging.debug(f"F1 Score_ABAW (Emotions): {results[7]}, F1 Score (Emotions per class): {results[3]}")
+        print(f"F1 Score_ABAW (Emotions): {results[7]}, F1 Score (Emotions per class): {results[3]}")
     if 'actions' in challenges:
-        logging.debug(f"F1 Score Mean (Actions): {results[6]}, F1 Score (Actions): {results[4]}")
+        print(f"F1 Score Mean (Actions): {results[6]}, F1 Score (Actions): {results[4]}")
 
     torch.save(best_model_state, 'best_multitask_model_att.pth')
 
-logging.debug('------- Training over: ', datetime.now())
-logging.debug('------- best_P_Score: ', best_P_Score)
-
-# Separate Model Training for Each Task
-tasks = ['val_arousal', 'emotions', 'actions']
-for task in tasks:
-    model = DDAMNet(num_class=8, num_head=2, pretrained=False, train_val_arousal=(task == 'val_arousal'), train_emotions=(task == 'emotions'), train_actions=(task == 'actions'))
-    model.load_state_dict(checkpoint['model_state_dict'], strict=False)
-    freeze_all_layers(model)
-    unfreeze_layers(model, layers_to_unfreeze)
-    model.to(device)
-
-    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate)
-    best_val_loss = float('inf')
-    best_model_state = None
-
-    for epoch in range(num_epochs):
-        train_loss = train_model(model, train_loader, optimizer, criterion_val_arousal, criterion_emotions, criterion_actions, criterion_at, device, challenges=(task,))
-        results = evaluate_model(model, test_loader, criterion_val_arousal, criterion_emotions, criterion_actions, criterion_at, device, challenges=(task,))
-        P_score = (results[0] or 0) + (results[7] or 0) + (results[6] or 0)
-        val_loss = results[5]
-        if P_score < best_P_Score:
-            best_P_Score = P_score
-            best_model_state = model.state_dict()
-
-        logging.debug(f"Epoch {epoch+1}/{num_epochs}, Training Loss: {train_loss}")
-        logging.debug(f"Validation Loss: {val_loss}")
-        logging.debug(f"P_SCORE: {P_score}")
-        if task == 'val_arousal':
-            logging.debug(f"Validation CCC (Valence-Arousal): {results[0]}, Valence: {results[1]}, Arousal: {results[2]}")
-        elif task == 'emotions':
-            logging.debug(f"F1 Score_ABAW (Emotions): {results[7]}, F1 Score (Emotions per class): {results[3]}")
-        elif task == 'actions':
-            logging.debug(f"F1 Score Mean (Actions): {results[6]}, F1 Score (Actions): {results[4]}")
-
-    torch.save(best_model_state, f'best_model_{task}.pth')
-
+print('------- Training over: ', datetime.now())
+print('------- best_P_Score: ', best_P_Score)
 
 # Define the range of thresholds to search
 thresholds = np.arange(0.1, 0.9, 0.01)
@@ -548,7 +542,7 @@ for i in range(pred_action_units.shape[1]):
     best_thresh = 0
     for threshold in thresholds:
         # Apply threshold
-        pred_binary = (pred_action_units[:, i] >= threshold).astype(int)
+        pred_binary = (pred_action_units[:, i] >= threshold).int()
         
         # Calculate F1 score
         f1 = f1_score(true_action_units[:, i], pred_binary, average="macro")
@@ -563,22 +557,22 @@ for i in range(pred_action_units.shape[1]):
     best_f1_scores[i] = best_f1
 
 # Output the best thresholds for each index
-logging.debug("Best Thresholds:", best_thresholds)
-logging.debug("Best F1 Scores:", best_f1_scores)
+print("Best Thresholds:", best_thresholds)
+print("Best F1 Scores:", best_f1_scores)
 
 # Apply the best thresholds to get the final binary predictions
 pred_action_units_binary_optimal = np.zeros(pred_action_units.shape)
 for i in range(pred_action_units.shape[1]):
-    pred_action_units_binary_optimal[:, i] = (pred_action_units[:, i] >= best_thresholds[i]).astype(int)
+    pred_action_units_binary_optimal[:, i] = (pred_action_units[:, i] >= best_thresholds[i]).int()
 
 # Calculate the final macro-average F1 score with the best thresholds
 final_f1_action_units = f1_score(true_action_units, pred_action_units_binary_optimal, average="macro")
-logging.debug("Final Macro-Average F1 Score:", final_f1_action_units)
+print("Final Macro-Average F1 Score:", final_f1_action_units)
 
 # results[0] = (ccc_valence + ccc_arousal) / 2
 # results[7] = f1_expressions
 performance_measure = results[0] + results[7] + final_f1_action_units
 
-logging.debug(f"Performance Measure (P): {performance_measure}")
+print(f"Performance Measure (P): {performance_measure}")
 
-logging.debug('--------------------------------------------------------------------------------------')
+print('--------------------------------------------------------------------------------------')
