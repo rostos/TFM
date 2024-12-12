@@ -67,7 +67,7 @@ if __name__ == "__main__":
 
     # Step 2: Handle Missing Values
     missing_columns = ['valence', 'arousal', 'expression'] + [f'AU{i}' for i in [1,2,4,6,7,10,12,15,23,24,25,26]]
-    data[missing_columns] = data[missing_columns].replace('10', np.nan)  # '10' represents missing values
+    data[missing_columns] = data[missing_columns].replace('10', np.nan).replace(10, np.nan).replace(10.0, np.nan)  # '10' represents missing values
     data[missing_columns] = data[missing_columns].astype(float)
 
     # Step 3: Prepare Dataset and DataLoader
