@@ -32,10 +32,22 @@ class CustomDataset(Dataset):
         from torchvision import transforms
         
         preprocess = transforms.Compose([
-            transforms.Resize((224, 224)),  # Resize to match ViT input
+            transforms.Resize([int(224*1.04), int(224*1.04)]),
+            ######augmentation######
+            transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.2),
+            transforms.RandomCrop([224, 224]),
+            transforms.RandomHorizontalFlip(p=0.5),
+            ##################
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),  # Normalize as per ViT expectations
+            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
         ])
+        
+        # transform_val = transforms.Compose([
+        #     transforms.Resize([img_size, img_size]),
+        #     transforms.ToTensor(),
+        #     transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+        # ]) 
+        
         image = Image.open(path).convert("RGB")
         return preprocess(image)
 
@@ -76,7 +88,7 @@ if __name__ == "__main__":
 
     # Step 4: Initialize and Train Model
     model = EMMA(num_classes=(1+12), exp_model_path = './checkpoints_ver2.0/affecnet8_epoch5_acc0.6209.pth').to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=4e-3)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     criterion = torch.nn.MSELoss()
 
     # Enable Mixed Precision (Optional)
@@ -85,7 +97,7 @@ if __name__ == "__main__":
     print("Starting training")
 
     # Training Loop
-    for epoch in range(10):  # Replace with the desired number of epochs
+    for epoch in range(2):
         print(f"Epoch {epoch} started")
         model.train()
         for i, (inputs, targets) in enumerate(data_loader):
@@ -116,12 +128,34 @@ if __name__ == "__main__":
         for idx, row in data[data[missing_columns].isnull().any(axis=1)].iterrows():
             image_path = f"../ABAW_7th/cropped_aligned/{row['image']}"
             image = dataset.load_image(image_path)
-            inputs = torch.tensor(image, dtype=torch.float32).unsqueeze(0).to(device)
+            inputs = image.unsqueeze(0).to(device)
+            #inputs = torch.tensor(image, dtype=torch.float32).unsqueeze(0).to(device)
             predictions = model(inputs)
-            data.loc[idx, missing_columns] = predictions.cpu().numpy()  # Move predictions back to CPU
 
+            # Handle NaN values in predictions
+            predictions = predictions.cpu().numpy()  # Convert to NumPy array
+            predictions = np.nan_to_num(predictions, nan=10).flatten()  # Replace NaN and flatten
+
+            # Assign predictions to the DataFrame
+            data.loc[idx, missing_columns] = predictions
 
     print("Completed prediction!!")
+    
+    print("Now saving the data")
 
     # Save Completed Data
     data.to_csv('completed_data.csv', index=False)
+
+    # Fix the values
+    data['valence'] = data['valence'].clip(-1, 1).astype(float)
+    data['arousal'] = data['arousal'].clip(-1, 1).astype(float)
+    data['expression'] = data['expression'].clip(0, 7).astype(int)
+    
+    # List of AU columns
+    au_columns = [f'AU{i}' for i in [1, 2, 4, 6, 7, 10, 12, 15, 23, 24, 25, 26]]
+
+    # Clip values to 0 or 1
+    data[au_columns] = data[au_columns].applymap(lambda x: 1 if x >= 0.5 else 0)
+
+    # Save Completed Data
+    data.to_csv('completed_data_fixed.csv', index=False)
