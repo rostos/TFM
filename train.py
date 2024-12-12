@@ -541,11 +541,37 @@ for epoch in range(num_epochs):
 print('------- Training over: ', datetime.now())
 print('------- best_P_Score: ', best_P_Score)
 
-# Define the range of thresholds to search
-thresholds = np.arange(0.1, 0.9, 0.01)
-
 pred_action_units = results[8]
 true_action_units = results[9]
+f1_val_arousal = results[0]
+
+print('-------Now training EXPR a little bit more')
+
+freeze_all_layers(model)
+layers_to_unfreeze = ["custom_classifier.emotions"]
+unfreeze_layers(model, layers_to_unfreeze)
+criterion_emotions = nn.CrossEntropyLoss()
+optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate)
+
+extra_epochs_expr = 10
+
+for epoch in range(extra_epochs_expr):
+    train_loss = train_model(model, train_loader, optimizer, None, criterion_emotions, None, criterion_at, device, challenges=('emotions'), weights=weights)
+    results = evaluate_model(model, test_loader, None, criterion_emotions, None, criterion_at, device, challenges=('emotions'))
+
+    print(f"Extra EXPR epoch {epoch + 1}/{extra_epochs_expr}, Training Loss: {train_loss}")
+    print(f"Validation Loss: {val_loss}")
+    print(f"P_SCORE: {results[7] or 0}")
+    if 'emotions' in challenges:
+        print(f"F1 Score_ABAW (Emotions): {results[7]}, F1 Score (Emotions per class): {results[3]}")
+
+    torch.save(best_model_state, 'best_multitask_model_att.pth')
+
+print('------- Extra training over: ', datetime.now())
+print('------- best_P_Score: ', best_P_Score)
+
+# Define the range of thresholds to search
+thresholds = np.arange(0.1, 0.9, 0.01)
 
 # Initialize the best thresholds and corresponding best F1 scores
 best_thresholds = np.zeros(pred_action_units.shape[1])
@@ -584,9 +610,7 @@ for i in range(pred_action_units.shape[1]):
 final_f1_action_units = f1_score(true_action_units, pred_action_units_binary_optimal, average="macro")
 print("Final Macro-Average F1 Score:", final_f1_action_units)
 
-# results[0] = (ccc_valence + ccc_arousal) / 2
-# results[7] = f1_expressions
-performance_measure = results[0] + results[7] + final_f1_action_units
+performance_measure = f1_val_arousal + results[7] + final_f1_action_units
 
 print(f"Performance Measure (P): {performance_measure}")
 

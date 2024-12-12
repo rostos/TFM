@@ -1,0 +1,4 @@
+emma_annotations/
+emma_net/__pycache__/
+emma_net/models/
+checkpoints_ver2.0/affecnet8_epoch5_acc0.6209.pth
