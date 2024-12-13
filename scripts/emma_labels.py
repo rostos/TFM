@@ -87,7 +87,7 @@ if __name__ == "__main__":
     data_loader = DataLoader(dataset, batch_size=128, shuffle=True, num_workers=2, pin_memory=True)
 
     # Step 4: Initialize and Train Model
-    model = EMMA(num_classes=(1+12), exp_model_path = './checkpoints_ver2.0/affecnet8_epoch5_acc0.6209.pth').to(device)
+    model = EMMA(num_classes=(13), exp_model_path = './checkpoints_ver2.0/affecnet8_epoch5_acc0.6209.pth').to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     criterion = torch.nn.MSELoss()
 
@@ -97,7 +97,7 @@ if __name__ == "__main__":
     print("Starting training")
 
     # Training Loop
-    for epoch in range(2):
+    for epoch in range(10):
         print(f"Epoch {epoch} started")
         model.train()
         for i, (inputs, targets) in enumerate(data_loader):

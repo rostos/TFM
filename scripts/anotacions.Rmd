@@ -1,0 +1,215 @@
+---
+title: "Anotacions s-Aff-Wild2"
+author: "Rubén Ostos"
+date: "2024-12-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+if (!require('tidyr')) install.packages('tidyr'); library('tidyr')
+if (!require('dplyr')) install.packages('dplyr'); library('dplyr')
+```
+
+
+
+# Training
+
+```{r setup, include=FALSE}
+file_path <- "training_set_annotations.txt"
+raw_data <- read.csv(file_path, header = FALSE, sep = ",", stringsAsFactors = FALSE, quote = "\"", fill = TRUE)
+
+colnames(raw_data) <- c("image", "valence", "arousal", "expression", paste0("AU", c(1, 2, 4, 6, 7, 10, 12, 15, 23, 24, 25, 26)))
+
+raw_data <- raw_data %>%
+  rename(
+    image = image,
+    valence = valence,
+    arousal = arousal,
+    expression = expression
+  )
+
+raw_data[, 2:ncol(raw_data)] <- lapply(raw_data[, 2:ncol(raw_data)], as.numeric)
+
+# Per a transformar a valors processables
+# raw_data <- raw_data %>%
+#   mutate(
+#     valence = ifelse(valence == -5, 5, valence),
+#     arousal = ifelse(arousal == -5, 5, arousal),
+#     expression = ifelse(expression == -1, 10, expression),
+#     across(all_of(au_columns), ~ ifelse(. == -1, 5, .))
+#   )
+
+# Per a eliminar les files amb valors invàlids
+raw_data <- raw_data %>%
+  filter(
+    valence != -5,
+    arousal != -5,
+    expression != -1,
+    if_all(all_of(au_columns), ~ . != -1)
+  )
+
+raw_data <- raw_data %>%
+  mutate(
+    valence = as.numeric(valence),
+    arousal = as.numeric(arousal),
+    expression = as.numeric(expression),
+    across(all_of(au_columns), as.numeric)
+  )
+
+au_columns <- paste0("AU", c(1, 2, 4, 6, 7, 10, 12, 15, 23, 24, 25, 26))
+raw_data[au_columns] <- lapply(raw_data[au_columns], function(x) format(x, nsmall = 1, scientific = FALSE))
+
+raw_data <- raw_data[!raw_data$image %in% c("image", "expression"), ]
+```
+
+
+
+```{r pressure, echo=FALSE}
+print(head(raw_data))
+```
+
+```{r pressure, echo=FALSE}
+str(raw_data)
+```
+
+
+
+```{r pressure, echo=FALSE}
+write.csv(raw_data, "transformed_training_set_annotations_3.csv", row.names = FALSE, quote = FALSE)
+```
+
+## Training amb EMMA
+
+```{r setup, include=FALSE}
+file_path <- "training_set_annotations.txt"
+raw_data <- read.csv(file_path, header = FALSE, sep = ",", stringsAsFactors = FALSE, quote = "\"", fill = TRUE)
+
+colnames(raw_data) <- c("image", "valence", "arousal", "expression", paste0("AU", c(1, 2, 4, 6, 7, 10, 12, 15, 23, 24, 25, 26)))
+
+raw_data <- raw_data %>%
+  rename(
+    image = image,
+    valence = valence,
+    arousal = arousal,
+    expression = expression
+  )
+
+raw_data[, 2:ncol(raw_data)] <- lapply(raw_data[, 2:ncol(raw_data)], as.numeric)
+
+# Per a transformar a valors processables
+raw_data <- raw_data %>%
+  mutate(
+    valence = ifelse(valence == -5, 10, valence),
+    arousal = ifelse(arousal == -5, 10, arousal),
+    expression = ifelse(expression == -1, 10, expression),
+    across(all_of(au_columns), ~ ifelse(. == -1, 10, .))
+  )
+
+au_columns <- paste0("AU", c(1, 2, 4, 6, 7, 10, 12, 15, 23, 24, 25, 26))
+raw_data[au_columns] <- lapply(raw_data[au_columns], function(x) format(x, nsmall = 1, scientific = FALSE))
+
+raw_data <- raw_data[!raw_data$image %in% c("image", "expression"), ]
+```
+
+```{r pressure, echo=FALSE}
+write.csv(raw_data, "emma_training_set_annotations.csv", row.names = FALSE, quote = FALSE)
+```
+
+
+# Validation
+
+```{r pressure, echo=FALSE}
+file_path <- "validation_set_annotations.txt"
+raw_data <- read.csv(file_path, header = FALSE, sep = ",", stringsAsFactors = FALSE, quote = "\"", fill = TRUE)
+
+colnames(raw_data) <- c("image", "valence", "arousal", "expression", paste0("AU", c(1, 2, 4, 6, 7, 10, 12, 15, 23, 24, 25, 26)))
+
+raw_data <- raw_data %>%
+  rename(
+    image = image,
+    valence = valence,
+    arousal = arousal,
+    expression = expression
+  )
+
+raw_data[, 2:ncol(raw_data)] <- lapply(raw_data[, 2:ncol(raw_data)], as.numeric)
+
+# Per a transformar a valors processables
+# raw_data <- raw_data %>%
+#   mutate(
+#     valence = ifelse(valence == -5, 5, valence),
+#     arousal = ifelse(arousal == -5, 5, arousal),
+#     expression = ifelse(expression == -1, 10, expression),
+#     across(all_of(au_columns), ~ ifelse(. == -1, 5, .))
+#   )
+
+# Per a eliminar les files amb valors invàlids
+raw_data <- raw_data[raw_data$expression != -1, ]
+
+raw_data <- raw_data %>%
+  mutate(
+    valence = as.numeric(valence),
+    arousal = as.numeric(arousal),
+    expression = as.numeric(expression),
+    across(all_of(au_columns), as.numeric)
+  )
+
+au_columns <- paste0("AU", c(1, 2, 4, 6, 7, 10, 12, 15, 23, 24, 25, 26))
+raw_data[au_columns] <- lapply(raw_data[au_columns], function(x) format(x, nsmall = 1, scientific = FALSE))
+
+raw_data <- na.omit(raw_data)
+```
+
+
+
+```{r pressure, echo=FALSE}
+print(head(raw_data))
+```
+
+```{r pressure, echo=FALSE}
+str(raw_data)
+```
+
+
+```{r pressure, echo=FALSE}
+write.csv(raw_data, "transformed_validation_set_annotations.csv", row.names = FALSE, quote = FALSE)
+```
+
+
+## Validation amb EMMA
+
+```{r setup, include=FALSE}
+file_path <- "validation_set_annotations.txt"
+raw_data <- read.csv(file_path, header = FALSE, sep = ",", stringsAsFactors = FALSE, quote = "\"", fill = TRUE)
+
+colnames(raw_data) <- c("image", "valence", "arousal", "expression", paste0("AU", c(1, 2, 4, 6, 7, 10, 12, 15, 23, 24, 25, 26)))
+
+raw_data <- raw_data %>%
+  rename(
+    image = image,
+    valence = valence,
+    arousal = arousal,
+    expression = expression
+  )
+
+raw_data[, 2:ncol(raw_data)] <- lapply(raw_data[, 2:ncol(raw_data)], as.numeric)
+
+# Per a transformar a valors processables
+raw_data <- raw_data %>%
+  mutate(
+    valence = ifelse(valence == -5, 10, valence),
+    arousal = ifelse(arousal == -5, 10, arousal),
+    expression = ifelse(expression == -1, 10, expression),
+    across(all_of(au_columns), ~ ifelse(. == -1, 10, .))
+  )
+
+au_columns <- paste0("AU", c(1, 2, 4, 6, 7, 10, 12, 15, 23, 24, 25, 26))
+raw_data[au_columns] <- lapply(raw_data[au_columns], function(x) format(x, nsmall = 1, scientific = FALSE))
+
+raw_data <- na.omit(raw_data)
+```
+
+```{r pressure, echo=FALSE}
+write.csv(raw_data, "emma_validation_set_annotations.csv", row.names = FALSE, quote = FALSE)
+```
+
