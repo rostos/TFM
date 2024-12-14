@@ -4,3 +4,4 @@ checkpoints_ver2.0/affecnet8_epoch5_acc0.6209.pth
 emma_net/
 proves.py
 annotations/
+scripts/.Rhistory

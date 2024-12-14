@@ -25,12 +25,12 @@ import os
 
 os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
-FINE_TUNE_LOSS = True
-EXTRA_EXPR_TRAIN = True
+FINE_TUNE_LOSS = False
+EXTRA_EXPR_TRAIN = False
 EMMA_ANNOTATIONS = True
-EMMA_EPOCHS = 2
+EMMA_EPOCHS = 10
 
-EPOCHS = 1
+EPOCHS = 10
 
 # Function to freeze all layers
 def freeze_all_layers(model):

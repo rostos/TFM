@@ -15,7 +15,7 @@ if (!require('dplyr')) install.packages('dplyr'); library('dplyr')
 # Training
 
 ```{r setup, include=FALSE}
-file_path <- "training_set_annotations.txt"
+file_path <- "../annotations/training_set_annotations.txt"
 raw_data <- read.csv(file_path, header = FALSE, sep = ",", stringsAsFactors = FALSE, quote = "\"", fill = TRUE)
 
 colnames(raw_data) <- c("image", "valence", "arousal", "expression", paste0("AU", c(1, 2, 4, 6, 7, 10, 12, 15, 23, 24, 25, 26)))
@@ -75,13 +75,13 @@ str(raw_data)
 
 
 ```{r pressure, echo=FALSE}
-write.csv(raw_data, "transformed_training_set_annotations_3.csv", row.names = FALSE, quote = FALSE)
+write.csv(raw_data, "../annotations/transformed_training_set_annotations_3.csv", row.names = FALSE, quote = FALSE)
 ```
 
 ## Training amb EMMA
 
 ```{r setup, include=FALSE}
-file_path <- "training_set_annotations.txt"
+file_path <- "../annotations/training_set_annotations.txt"
 raw_data <- read.csv(file_path, header = FALSE, sep = ",", stringsAsFactors = FALSE, quote = "\"", fill = TRUE)
 
 colnames(raw_data) <- c("image", "valence", "arousal", "expression", paste0("AU", c(1, 2, 4, 6, 7, 10, 12, 15, 23, 24, 25, 26)))
@@ -112,14 +112,14 @@ raw_data <- raw_data[!raw_data$image %in% c("image", "expression"), ]
 ```
 
 ```{r pressure, echo=FALSE}
-write.csv(raw_data, "emma_training_set_annotations.csv", row.names = FALSE, quote = FALSE)
+write.csv(raw_data, "../emma_annotations/emma_training_set_annotations.csv", row.names = FALSE, quote = FALSE)
 ```
 
 
 # Validation
 
 ```{r pressure, echo=FALSE}
-file_path <- "validation_set_annotations.txt"
+file_path <- "../annotations/validation_set_annotations.txt"
 raw_data <- read.csv(file_path, header = FALSE, sep = ",", stringsAsFactors = FALSE, quote = "\"", fill = TRUE)
 
 colnames(raw_data) <- c("image", "valence", "arousal", "expression", paste0("AU", c(1, 2, 4, 6, 7, 10, 12, 15, 23, 24, 25, 26)))
@@ -172,14 +172,14 @@ str(raw_data)
 
 
 ```{r pressure, echo=FALSE}
-write.csv(raw_data, "transformed_validation_set_annotations.csv", row.names = FALSE, quote = FALSE)
+write.csv(raw_data, "../annotations/transformed_validation_set_annotations.csv", row.names = FALSE, quote = FALSE)
 ```
 
 
 ## Validation amb EMMA
 
 ```{r setup, include=FALSE}
-file_path <- "validation_set_annotations.txt"
+file_path <- "../annotations/validation_set_annotations.txt"
 raw_data <- read.csv(file_path, header = FALSE, sep = ",", stringsAsFactors = FALSE, quote = "\"", fill = TRUE)
 
 colnames(raw_data) <- c("image", "valence", "arousal", "expression", paste0("AU", c(1, 2, 4, 6, 7, 10, 12, 15, 23, 24, 25, 26)))
@@ -210,6 +210,6 @@ raw_data <- na.omit(raw_data)
 ```
 
 ```{r pressure, echo=FALSE}
-write.csv(raw_data, "emma_validation_set_annotations.csv", row.names = FALSE, quote = FALSE)
+write.csv(raw_data, "../annotations/emma_validation_set_annotations.csv", row.names = FALSE, quote = FALSE)
 ```
 
