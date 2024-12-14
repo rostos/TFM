@@ -25,6 +25,12 @@ import os
 
 os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
+FINE_TUNE_LOSS = True
+EXTRA_EXPR_TRAIN = True
+EMMA_ANNOTATIONS = True
+EMMA_EPOCHS = 2
+
+EPOCHS = 1
 
 # Function to freeze all layers
 def freeze_all_layers(model):
@@ -59,8 +65,7 @@ test_transforms = transforms.Compose([
         transforms.Resize((112, 112)),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                             std=[0.229, 0.224, 0.225])])  
-
+                             std=[0.229, 0.224, 0.225])])
 
 train_transforms = transforms.Compose([
         transforms.Resize((112, 112)),
@@ -90,9 +95,12 @@ class DataGenerator(Sequence):
         self.drop_last = drop_last
 
         if self.mode == 'train':
-            self.targets_csv = './transformed_training_set_annotations_3.csv'
+            if EMMA_ANNOTATIONS:
+                self.targets_csv = f"./annotations/final_emma_dataset_{EMMA_EPOCHS}_epochs.csv"
+            else:
+                self.targets_csv = './annotations/transformed_training_set_annotations_3.csv'
         elif self.mode == 'val':
-            self.targets_csv = './transformed_validation_set_annotations.csv'
+            self.targets_csv = './annotations/transformed_validation_set_annotations.csv'
         else:
             raise ValueError("Invalid mode. Mode must be 'train' or 'val'.")
 
@@ -362,7 +370,9 @@ def adjust_weights(va_loss, expr_loss, au_loss):
 def train_model(model, train_loader, optimizer, criterion_val_arousal=None, criterion_emotions=None, criterion_actions=None, criterion_at=None, device=None, challenges=('val_arousal', 'emotions', 'actions'), weights={'val_arousal': 1.0, 'emotions': 1.0, 'actions': 1.0}):
     model.train()
     running_loss = 0.0
-    task_losses = {'val_arousal': 0.0, 'emotions': 0.0, 'actions': 0.0}
+
+    if FINE_TUNE_LOSS:
+        task_losses = {'val_arousal': 0.0, 'emotions': 0.0, 'actions': 0.0}
 
     for inputs, labels in tqdm(train_loader):
         inputs = inputs.to(device)
@@ -376,23 +386,35 @@ def train_model(model, train_loader, optimizer, criterion_val_arousal=None, crit
         emotions = outputs[1] if 'emotions' in challenges else None
         actions = outputs[2] if 'actions' in challenges else None
         heads = outputs[-1] if criterion_at else None
-        
+
         loss = 0.0
         if 'val_arousal' in challenges:
             loss_val_arousal = criterion_val_arousal(val_arousal, labels_val_arousal)
-            task_losses['val_arousal'] += loss_val_arousal.item()
-            loss += weights['val_arousal'] * loss_val_arousal
 
-        if 'emotions' in challenges:           
+            if FINE_TUNE_LOSS:
+                task_losses['val_arousal'] += loss_val_arousal.item()
+                loss += weights['val_arousal'] * loss_val_arousal
+            else:
+                loss += loss_val_arousal
+
+        if 'emotions' in challenges:
             emotions_argmax = torch.argmax(labels_emotions, dim=1)
             loss_emotions = criterion_emotions(emotions, emotions_argmax)
-            task_losses['emotions'] += loss_emotions.item()
-            loss += weights['emotions'] * loss_emotions
+
+            if FINE_TUNE_LOSS:
+                task_losses['emotions'] += loss_emotions.item()
+                loss += weights['emotions'] * loss_emotions
+            else:
+                loss += loss_emotions
 
         if 'actions' in challenges:
             loss_actions = criterion_actions(actions.float(), labels_actions.float())
-            task_losses['actions'] += loss_actions.item()
-            loss += weights['actions'] * loss_actions
+            
+            if FINE_TUNE_LOSS:
+                task_losses['actions'] += loss_actions.item()
+                loss += weights['actions'] * loss_actions
+            else:
+                loss += loss_actions
         if criterion_at:
             loss += 0.1 * criterion_at(heads)
 
@@ -401,11 +423,12 @@ def train_model(model, train_loader, optimizer, criterion_val_arousal=None, crit
 
         running_loss += loss.item()
 
-    # Update the weights to fine-tune the loss
-    total_loss = sum(task_losses.values())
-    if total_loss > 0:
-        for task in task_losses:
-            weights[task] = task_losses[task] / total_loss
+    if FINE_TUNE_LOSS:
+        # Update the weights to fine-tune the loss
+        total_loss = sum(task_losses.values())
+        if total_loss > 0:
+            for task in task_losses:
+                weights[task] = task_losses[task] / total_loss
 
     epoch_loss = running_loss / len(train_loader)
     return epoch_loss
@@ -480,7 +503,6 @@ print('-------------------------------------------------------------------------
 print('------- train.py execution start ', datetime.now())
 
 challenges=('val_arousal', 'emotions', 'actions')
-num_epochs = 10
 learning_rate = 0.00001
 model_path = './checkpoints_ver2.0/affecnet8_epoch25_acc0.6469.pth'
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -510,12 +532,12 @@ optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr
 best_P_Score = float('-inf')
 best_model_state = None
 
-# Weights for loss fine-tuning
+# Weights for loss fine-tuning (ignored unless FINE_TUNE_LOSS is True)
 weights = { 'val_arousal': 1.0, 'emotions': 1.0, 'actions': 1.0 }
 
 print('------- Init of training ', datetime.now())
 
-for epoch in range(num_epochs):
+for epoch in range(EPOCHS):
     train_loss = train_model(model, train_loader, optimizer, criterion_val_arousal, criterion_emotions, criterion_actions, criterion_at, device, challenges=('val_arousal', 'emotions', 'actions'), weights=weights)
     results = evaluate_model(model, test_loader, criterion_val_arousal, criterion_emotions, criterion_actions, criterion_at, device, challenges=('val_arousal', 'emotions', 'actions'))
 
@@ -526,7 +548,7 @@ for epoch in range(num_epochs):
         best_P_Score = P_score
         best_model_state = model.state_dict()
 
-    print(f"Epoch {epoch+1}/{num_epochs}, Training Loss: {train_loss}")
+    print(f"Epoch {epoch+1}/{EPOCHS}, Training Loss: {train_loss}")
     print(f"Validation Loss: {val_loss}")
     print(f"P_SCORE: {results[0] + (results[7] or 0) + (results[6] or 0)}")
     if 'val_arousal' in challenges:
@@ -545,30 +567,31 @@ pred_action_units = results[8]
 true_action_units = results[9]
 f1_val_arousal = results[0]
 
-print('-------Now training EXPR a little bit more')
+if EXTRA_EXPR_TRAIN:
+    print('-------Now training EXPR a little bit more')
 
-freeze_all_layers(model)
-layers_to_unfreeze = ["custom_classifier.emotions"]
-unfreeze_layers(model, layers_to_unfreeze)
-criterion_emotions = nn.CrossEntropyLoss()
-optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate)
+    freeze_all_layers(model)
+    layers_to_unfreeze = ["custom_classifier.emotions"]
+    unfreeze_layers(model, layers_to_unfreeze)
+    criterion_emotions = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate)
 
-extra_epochs_expr = 10
+    extra_epochs_expr = 10
 
-for epoch in range(extra_epochs_expr):
-    train_loss = train_model(model, train_loader, optimizer, None, criterion_emotions, None, criterion_at, device, challenges=('emotions'), weights=weights)
-    results = evaluate_model(model, test_loader, None, criterion_emotions, None, criterion_at, device, challenges=('emotions'))
+    for epoch in range(extra_epochs_expr):
+        train_loss = train_model(model, train_loader, optimizer, None, criterion_emotions, None, criterion_at, device, challenges=('emotions'), weights=weights)
+        results = evaluate_model(model, test_loader, None, criterion_emotions, None, criterion_at, device, challenges=('emotions'))
 
-    print(f"Extra EXPR epoch {epoch + 1}/{extra_epochs_expr}, Training Loss: {train_loss}")
-    print(f"Validation Loss: {val_loss}")
-    print(f"P_SCORE: {results[7] or 0}")
-    if 'emotions' in challenges:
-        print(f"F1 Score_ABAW (Emotions): {results[7]}, F1 Score (Emotions per class): {results[3]}")
+        print(f"Extra EXPR epoch {epoch + 1}/{extra_epochs_expr}, Training Loss: {train_loss}")
+        print(f"Validation Loss: {val_loss}")
+        print(f"P_SCORE: {results[7] or 0}")
+        if 'emotions' in challenges:
+            print(f"F1 Score_ABAW (Emotions): {results[7]}, F1 Score (Emotions per class): {results[3]}")
 
-    torch.save(best_model_state, 'best_multitask_model_att.pth')
+        torch.save(best_model_state, 'best_multitask_model_att.pth')
 
-print('------- Extra training over: ', datetime.now())
-print('------- best_P_Score: ', best_P_Score)
+    print('------- Extra training over: ', datetime.now())
+    print('------- best_P_Score: ', best_P_Score)
 
 # Define the range of thresholds to search
 thresholds = np.arange(0.1, 0.9, 0.01)
