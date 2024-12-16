@@ -30,7 +30,10 @@ EXTRA_EXPR_TRAIN = False
 EMMA_ANNOTATIONS = True
 EMMA_EPOCHS = 10
 
-EPOCHS = 10
+LR = 0.001 #0.00001
+BATCH_SIZE = 64 #32
+EPOCHS = 5 #10
+EXTRA_EPOCHS = 5
 
 # Function to freeze all layers
 def freeze_all_layers(model):
@@ -503,14 +506,14 @@ print('-------------------------------------------------------------------------
 print('------- train.py execution start ', datetime.now())
 
 challenges=('val_arousal', 'emotions', 'actions')
-learning_rate = 0.00001
+learning_rate = LR
 model_path = './checkpoints_ver2.0/affecnet8_epoch25_acc0.6469.pth'
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Define dataloaders (placeholders, replace with actual DataLoader instances)
 # Initialize the generator
-train_loader = DataGenerator("../ABAW_7th/cropped_aligned", mode="train", batch_size=32, image_size=(112, 112), shuffle=True, device='cuda', transforms=train_transforms, drop_last = True)
-test_loader = DataGenerator("../ABAW_7th/cropped_aligned",mode="val",batch_size=32, image_size=(112,112), shuffle=False, device='cuda', transforms=test_transforms, drop_last = True)
+train_loader = DataGenerator("../ABAW_7th/cropped_aligned", mode="train", batch_size=BATCH_SIZE, image_size=(112, 112), shuffle=True, device='cuda', transforms=train_transforms, drop_last = True)
+test_loader = DataGenerator("../ABAW_7th/cropped_aligned",mode="val",batch_size=BATCH_SIZE, image_size=(112,112), shuffle=False, device='cuda', transforms=test_transforms, drop_last = True)
 
 # Define loss functions
 criterion_val_arousal = CCC_loss
@@ -576,13 +579,11 @@ if EXTRA_EXPR_TRAIN:
     criterion_emotions = nn.CrossEntropyLoss()
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate)
 
-    extra_epochs_expr = 10
-
-    for epoch in range(extra_epochs_expr):
+    for epoch in range(EXTRA_EPOCHS):
         train_loss = train_model(model, train_loader, optimizer, None, criterion_emotions, None, criterion_at, device, challenges=('emotions'), weights=weights)
         results = evaluate_model(model, test_loader, None, criterion_emotions, None, criterion_at, device, challenges=('emotions'))
 
-        print(f"Extra EXPR epoch {epoch + 1}/{extra_epochs_expr}, Training Loss: {train_loss}")
+        print(f"Extra EXPR epoch {epoch + 1}/{EXTRA_EPOCHS}, Training Loss: {train_loss}")
         print(f"Validation Loss: {val_loss}")
         print(f"P_SCORE: {results[7] or 0}")
         if 'emotions' in challenges:
