@@ -2,6 +2,7 @@ import os
 import sys
 import argparse
 import logging
+import math
 import numpy as np
 import torch
 import torch.utils.data as data
@@ -30,9 +31,8 @@ EXTRA_EXPR_TRAIN = False
 EMMA_ANNOTATIONS = True
 EMMA_EPOCHS = 10
 
-LR = 0.001 #0.00001
 BATCH_SIZE = 64 #32
-EPOCHS = 5 #10
+EPOCHS = 11 #10
 EXTRA_EPOCHS = 5
 
 # Function to freeze all layers
@@ -506,7 +506,6 @@ print('-------------------------------------------------------------------------
 print('------- train.py execution start ', datetime.now())
 
 challenges=('val_arousal', 'emotions', 'actions')
-learning_rate = LR
 model_path = './checkpoints_ver2.0/affecnet8_epoch25_acc0.6469.pth'
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -531,7 +530,15 @@ unfreeze_layers(model, layers_to_unfreeze)
 #freeze_batchnorm_layers(model)
 model.to(device)
 
-optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate)
+if EMMA_ANNOTATIONS:
+    optimizer = optim.AdamW(model.parameters(), lr=0.0001, weight_decay=0)
+    warm_up_with_cosine_lr = lambda \
+            epoch: epoch / 5 if epoch <= 5 else 0.5 * (math.cos(
+        (epoch - 5) / (6 - 5) * math.pi) + 1)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=warm_up_with_cosine_lr)
+else:
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=0.00001)
+
 best_P_Score = float('-inf')
 best_model_state = None
 
@@ -561,6 +568,8 @@ for epoch in range(EPOCHS):
     if 'actions' in challenges:
         print(f"F1 Score Mean (Actions): {results[6]}, F1 Score (Actions): {results[4]}")
 
+    scheduler.step()
+
     torch.save(best_model_state, 'best_multitask_model_att.pth')
 
 print('------- Training over: ', datetime.now())
@@ -576,8 +585,6 @@ if EXTRA_EXPR_TRAIN:
     freeze_all_layers(model)
     layers_to_unfreeze = ["custom_classifier.emotions"]
     unfreeze_layers(model, layers_to_unfreeze)
-    criterion_emotions = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate)
 
     for epoch in range(EXTRA_EPOCHS):
         train_loss = train_model(model, train_loader, optimizer, None, criterion_emotions, None, criterion_at, device, challenges=('emotions'), weights=weights)
@@ -588,6 +595,9 @@ if EXTRA_EXPR_TRAIN:
         print(f"P_SCORE: {results[7] or 0}")
         if 'emotions' in challenges:
             print(f"F1 Score_ABAW (Emotions): {results[7]}, F1 Score (Emotions per class): {results[3]}")
+
+        if EMMA_ANNOTATIONS:
+            scheduler.step()
 
         torch.save(best_model_state, 'best_multitask_model_att.pth')
 
