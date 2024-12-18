@@ -26,14 +26,15 @@ import os
 
 os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
-FINE_TUNE_LOSS = False
+FINE_TUNE_LOSS = True
 EXTRA_EXPR_TRAIN = False
-EMMA_ANNOTATIONS = True
+EMMA_ANNOTATIONS = False
 EMMA_EPOCHS = 10
 
-BATCH_SIZE = 64 #32
-EPOCHS = 11 #10
-EXTRA_EPOCHS = 5
+BATCH_SIZE = 32 # 64
+LEARNING_RATE = 0.00001 # 0.000005
+EPOCHS = 10 #6
+EXTRA_EPOCHS = 10
 
 # Function to freeze all layers
 def freeze_all_layers(model):
@@ -370,12 +371,9 @@ def adjust_weights(va_loss, expr_loss, au_loss):
     return va_loss / total_loss, expr_loss / total_loss, au_loss / total_loss
 
 # Define the train and evaluation functions
-def train_model(model, train_loader, optimizer, criterion_val_arousal=None, criterion_emotions=None, criterion_actions=None, criterion_at=None, device=None, challenges=('val_arousal', 'emotions', 'actions'), weights={'val_arousal': 1.0, 'emotions': 1.0, 'actions': 1.0}):
+def train_model(model, train_loader, optimizer, criterion_val_arousal=None, criterion_emotions=None, criterion_actions=None, criterion_at=None, device=None, challenges=('val_arousal', 'emotions', 'actions'), weights={'val_arousal': 1.0, 'emotions': 1.0, 'actions': 1.0}, task_losses={'val_arousal': 0.0, 'emotions': 0.0, 'actions': 0.0}):
     model.train()
     running_loss = 0.0
-
-    if FINE_TUNE_LOSS:
-        task_losses = {'val_arousal': 0.0, 'emotions': 0.0, 'actions': 0.0}
 
     for inputs, labels in tqdm(train_loader):
         inputs = inputs.to(device)
@@ -434,7 +432,7 @@ def train_model(model, train_loader, optimizer, criterion_val_arousal=None, crit
                 weights[task] = task_losses[task] / total_loss
 
     epoch_loss = running_loss / len(train_loader)
-    return epoch_loss
+    return epoch_loss, weights
 
 def evaluate_model(model, test_loader, criterion_val_arousal=None, criterion_emotions=None, criterion_actions=None, criterion_at=None, device=None, challenges=('val_arousal', 'emotions', 'actions')):
     model.eval()
@@ -530,25 +528,19 @@ unfreeze_layers(model, layers_to_unfreeze)
 #freeze_batchnorm_layers(model)
 model.to(device)
 
-if EMMA_ANNOTATIONS:
-    optimizer = optim.AdamW(model.parameters(), lr=0.0001, weight_decay=0)
-    warm_up_with_cosine_lr = lambda \
-            epoch: epoch / 5 if epoch <= 5 else 0.5 * (math.cos(
-        (epoch - 5) / (6 - 5) * math.pi) + 1)
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=warm_up_with_cosine_lr)
-else:
-    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=0.00001)
+optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=LEARNING_RATE)
 
 best_P_Score = float('-inf')
 best_model_state = None
 
 # Weights for loss fine-tuning (ignored unless FINE_TUNE_LOSS is True)
 weights = { 'val_arousal': 1.0, 'emotions': 1.0, 'actions': 1.0 }
+task_losses = {'val_arousal': 0.0, 'emotions': 0.0, 'actions': 0.0}
 
 print('------- Init of training ', datetime.now())
 
 for epoch in range(EPOCHS):
-    train_loss = train_model(model, train_loader, optimizer, criterion_val_arousal, criterion_emotions, criterion_actions, criterion_at, device, challenges=('val_arousal', 'emotions', 'actions'), weights=weights)
+    train_loss, weights = train_model(model, train_loader, optimizer, criterion_val_arousal, criterion_emotions, criterion_actions, criterion_at, device, challenges=('val_arousal', 'emotions', 'actions'), weights=weights, task_losses=task_losses)
     results = evaluate_model(model, test_loader, criterion_val_arousal, criterion_emotions, criterion_actions, criterion_at, device, challenges=('val_arousal', 'emotions', 'actions'))
 
     P_score = results[0] + (results[7] or 0) + (results[6] or 0)
@@ -568,8 +560,6 @@ for epoch in range(EPOCHS):
     if 'actions' in challenges:
         print(f"F1 Score Mean (Actions): {results[6]}, F1 Score (Actions): {results[4]}")
 
-    scheduler.step()
-
     torch.save(best_model_state, 'best_multitask_model_att.pth')
 
 print('------- Training over: ', datetime.now())
@@ -582,9 +572,8 @@ f1_val_arousal = results[0]
 if EXTRA_EXPR_TRAIN:
     print('-------Now training EXPR a little bit more')
 
-    freeze_all_layers(model)
-    layers_to_unfreeze = ["custom_classifier.emotions"]
-    unfreeze_layers(model, layers_to_unfreeze)
+    layers_to_freeze = ["custom_classifier.val_arousal", "custom_classifier.actions"]
+    freeze_layers(model, layers_to_freeze)
 
     for epoch in range(EXTRA_EPOCHS):
         train_loss = train_model(model, train_loader, optimizer, None, criterion_emotions, None, criterion_at, device, challenges=('emotions'), weights=weights)
@@ -595,9 +584,6 @@ if EXTRA_EXPR_TRAIN:
         print(f"P_SCORE: {results[7] or 0}")
         if 'emotions' in challenges:
             print(f"F1 Score_ABAW (Emotions): {results[7]}, F1 Score (Emotions per class): {results[3]}")
-
-        if EMMA_ANNOTATIONS:
-            scheduler.step()
 
         torch.save(best_model_state, 'best_multitask_model_att.pth')
 
